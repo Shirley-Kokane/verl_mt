@@ -308,7 +308,8 @@ class vLLMRollout(BaseRollout):
                     first50_logprobs = []
                     last50_logprobs = []
                     if self.config.calculate_log_probs:
-                        for key_first, key_last in zip(output.outputs[sample_id].logprobs[:50], output.outputs[sample_id].logprobs[-50:]):
+                        target_num = min(15, len(response_ids)//2)
+                        for key_first, key_last in zip(output.outputs[sample_id].logprobs[:target_num], output.outputs[sample_id].logprobs[-target_num:]):
                             first_logprobs = [key_first_value.logprob for key_first_value in key_first.values()][:20]
                             last_logprobs = [key_last_value.logprob for key_last_value in key_last.values()][:20]
                             first50_logprobs.append(first_logprobs)

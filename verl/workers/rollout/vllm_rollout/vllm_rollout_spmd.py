@@ -274,6 +274,8 @@ class vLLMRollout(BaseRollout):
                 "n": 1,  # if validate, already repeat in ray_trainer
                 "logprobs": 20,
             }
+        else:
+            kwargs = {"logprobs": 20}
 
         lora_requests = None
         if self.lora_kwargs:
@@ -282,6 +284,7 @@ class vLLMRollout(BaseRollout):
                 lora_int_id = lora_int_ids[0]
                 lora_requests = [LoRARequest(lora_name=f"{lora_int_id}", lora_int_id=lora_int_id, lora_path="/simon-stub-path")] * batch_size
 
+        print("not empty kwargs: ", kwargs)
         # users can customize different sampling_params at different run
         with self.update_sampling_params(**kwargs):
             outputs = self.inference_engine.generate(
@@ -296,17 +299,22 @@ class vLLMRollout(BaseRollout):
 
             response = []
             rollout_log_probs = []
-            first50_logprobs = []
-            last50_logprobs = []
+            sample_first50_logprobs = []
+            sample_last50_logprobs = []
             for output in outputs:
                 for sample_id in range(len(output.outputs)):
                     response_ids = output.outputs[sample_id].token_ids
                     response.append(response_ids)
+                    first50_logprobs = []
+                    last50_logprobs = []
                     if self.config.calculate_log_probs:
-                        first50_logprobs = output.outputs[sample_id].logprobs[:5]
-                        last50_logprobs = output.outputs[sample_id].logprobs[-5:]
-                        print("what this: ", len(first50_logprobs), len(first50_logprobs[0]), first50_logprobs[:5,:5])
-                        print("logprobs: ", len(output.outputs[sample_id].logprobs), len(output.outputs[sample_id].logprobs[0]))
+                        for key_first, key_last in zip(output.outputs[sample_id].logprobs[:50], output.outputs[sample_id].logprobs[-50:]):
+                            first_logprobs = [key_first_value.logprob for key_first_value in key_first.values()][:20]
+                            last_logprobs = [key_last_value.logprob for key_last_value in key_last.values()][:20]
+                            first50_logprobs.append(first_logprobs)
+                            last50_logprobs.append(last_logprobs)
+                        sample_first50_logprobs.append(first50_logprobs)
+                        sample_last50_logprobs.append(last50_logprobs)
                         curr_log_prob = []
                         for i, logprob in enumerate(output.outputs[sample_id].logprobs):
                             curr_log_prob.append(logprob[response_ids[i]].logprob)
@@ -316,13 +324,10 @@ class vLLMRollout(BaseRollout):
             if self.config.calculate_log_probs:
                 rollout_log_probs = pad_2d_list_to_length(rollout_log_probs, -1, max_length=self.config.response_length).to(idx.device)
                 rollout_log_probs = rollout_log_probs.to(torch.float32)
-                print("before padding: ", len(first50_logprobs), len(first50_logprobs[0]))
-                first50_logprobs = pad_2d_list_to_length(first50_logprobs, -1, max_length=50).to(idx.device)
-                last50_logprobs = pad_2d_list_to_length(last50_logprobs, -1, max_length=50).to(idx.device)
-                first50_logprobs = first50_logprobs.to(torch.float32)
-                last50_logprobs = last50_logprobs.to(torch.float32)
-                print("first50_logprobs: ", first50_logprobs.shape, first50_logprobs[:5,:5])
-                print("last50_logprobs: ", last50_logprobs.shape, last50_logprobs[:5,:5])
+                sample_first50_logprobs = torch.tensor(sample_first50_logprobs, dtype=torch.float32).to(idx.device)
+                sample_last50_logprobs = torch.tensor(sample_last50_logprobs, dtype=torch.float32).to(idx.device)
+                print("sample_first50_logprobs: ", sample_first50_logprobs.shape)
+                print("sample_last50_logprobs: ", sample_last50_logprobs.shape)
 
             if self.sampling_params.n > 1 and do_sample:
                 idx = _repeat_interleave(idx, self.sampling_params.n)
@@ -368,6 +373,8 @@ class vLLMRollout(BaseRollout):
         if self.config.calculate_log_probs:
             # we will recompute old log prob with actor
             batch["rollout_log_probs"] = rollout_log_probs
+            batch["first50_logprobs"] = sample_first50_logprobs
+            batch["last50_logprobs"] = sample_last50_logprobs
 
         # free vllm cache engine
         if (

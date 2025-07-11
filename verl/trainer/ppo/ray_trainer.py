@@ -26,7 +26,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import Enum
 from pprint import pprint
-from typing import Optional, Type
+from typing import Dict, Optional, Type, Tuple
 
 import numpy as np
 import ray
@@ -272,6 +272,51 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
         data.batch["advantages"] = advantages
         data.batch["returns"] = returns
     return data
+
+
+
+def compute_topk_metrics_for_wandb(log_probs: torch.Tensor) -> Tuple[float, float, float, float, float]:
+    """
+    Compute top-k metrics from a tensor of sorted log-probabilities,
+    and return batch-averaged scalars suitable for logging to Weights & Biases.
+
+    Args:
+        log_probs: torch.Tensor of shape (bs, 50, 20), sorted in descending order
+
+    Returns:
+        Dict[str, float]: scalar metrics for wandb logging
+    """
+    print("shape incoming: ", log_probs.shape)
+    probs = log_probs.exp()  # (bs, 50, 20)
+
+    # 1. Entropy
+    entropy = -torch.sum(probs * log_probs, dim=-1)          # (bs, 50)
+    avg_entropy = entropy.mean()                             # scalar
+
+    # 2. Top-k Mass
+    topk_mass = probs.sum(dim=-1)                            # (bs, 50)
+    avg_topk_mass = topk_mass.mean()                         # scalar
+
+    # 3. Logprob Gap Top1-Top2
+    gap_1_2 = log_probs[:, :, 0] - log_probs[:, :, 1]        # (bs, 50)
+    avg_gap_1_2 = gap_1_2.mean()                             # scalar
+
+    # 4. Logprob Gap Top1-2 through Top5-6
+    pair_gaps = [log_probs[:, :, i] - log_probs[:, :, i + 1] for i in range(5)]
+    stacked_gaps = torch.stack(pair_gaps, dim=-1)            # (bs, 50, 5)
+    avg_gap_top5_pairs = stacked_gaps.mean()                 # scalar
+    
+    num_probs = log_probs.shape[2]
+    # 5. Slope/Decay of Logprobs
+    ranks = torch.arange(1, num_probs + 1, device=log_probs.device).float()
+    ranks = ranks - ranks.mean()
+    norm_ranks = ranks / ranks.norm()                        # (20,)
+
+    centered_log_probs = log_probs - log_probs.mean(dim=-1, keepdim=True)
+    slope = torch.einsum('bij,j->bi', centered_log_probs, norm_ranks)  # (bs, 50)
+    avg_slope = slope.mean()                                 # scalar
+
+    return avg_entropy.detach().item(), avg_topk_mass.detach().item(), avg_gap_1_2.detach().item(), avg_gap_top5_pairs.detach().item(), avg_slope.detach().item()
 
 
 class RayPPOTrainer:
@@ -1058,6 +1103,7 @@ class RayPPOTrainer:
                             rollout_probs_diff_max = torch.max(rollout_probs_diff)
                             rollout_probs_diff_mean = torch.mean(rollout_probs_diff)
                             rollout_probs_diff_std = torch.std(rollout_probs_diff)
+                            
                             metrics.update(
                                 {
                                     "training/rollout_probs_diff_max": rollout_probs_diff_max.detach().item(),
@@ -1065,6 +1111,22 @@ class RayPPOTrainer:
                                     "training/rollout_probs_diff_std": rollout_probs_diff_std.detach().item(),
                                 }
                             )
+                            
+                            avg_entropy, avg_topk_mass, avg_gap_1_2, avg_gap_top5_pairs, avg_slope = compute_topk_metrics_for_wandb(batch.batch["first50_logprobs"])
+                            metrics.update({
+                                "training/first50_avg_entropy": avg_entropy,
+                                "training/first50_avg_topk_mass": avg_topk_mass,
+                                "training/first50_avg_gap_1_2": avg_gap_1_2,
+                                "training/first50_avg_gap_top5_pairs": avg_gap_top5_pairs,
+                                "training/first50_avg_slope": avg_slope})
+                            
+                            avg_entropy, avg_topk_mass, avg_gap_1_2, avg_gap_top5_pairs, avg_slope = compute_topk_metrics_for_wandb(batch.batch["last50_logprobs"])
+                            metrics.update({
+                                "training/last50_avg_entropy": avg_entropy,
+                                "training/last50_avg_topk_mass": avg_topk_mass,
+                                "training/last50_avg_gap_1_2": avg_gap_1_2,
+                                "training/last50_avg_gap_top5_pairs": avg_gap_top5_pairs,
+                                "training/last50_avg_slope": avg_slope})
 
                     if self.use_reference_policy:
                         # compute reference log_prob

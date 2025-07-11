@@ -1112,7 +1112,7 @@ class RayPPOTrainer:
                                 }
                             )
                             
-                            avg_entropy, avg_topk_mass, avg_gap_1_2, avg_gap_top5_pairs, avg_slope = compute_topk_metrics_for_wandb(batch.batch["first50_logprobs"])
+                            avg_entropy, avg_topk_mass, avg_gap_1_2, avg_gap_top5_pairs, avg_slope = compute_topk_metrics_for_wandb(batch.batch["first15_logprobs"])
                             metrics.update({
                                 "training/first50_avg_entropy": avg_entropy,
                                 "training/first50_avg_topk_mass": avg_topk_mass,
@@ -1120,7 +1120,7 @@ class RayPPOTrainer:
                                 "training/first50_avg_gap_top5_pairs": avg_gap_top5_pairs,
                                 "training/first50_avg_slope": avg_slope})
                             
-                            avg_entropy, avg_topk_mass, avg_gap_1_2, avg_gap_top5_pairs, avg_slope = compute_topk_metrics_for_wandb(batch.batch["last50_logprobs"])
+                            avg_entropy, avg_topk_mass, avg_gap_1_2, avg_gap_top5_pairs, avg_slope = compute_topk_metrics_for_wandb(batch.batch["last15_logprobs"])
                             metrics.update({
                                 "training/last50_avg_entropy": avg_entropy,
                                 "training/last50_avg_topk_mass": avg_topk_mass,

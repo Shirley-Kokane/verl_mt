@@ -299,23 +299,23 @@ class vLLMRollout(BaseRollout):
 
             response = []
             rollout_log_probs = []
-            sample_first50_logprobs = []
-            sample_last50_logprobs = []
+            sample_first15_logprobs = []
+            sample_last15_logprobs = []
             for output in outputs:
                 for sample_id in range(len(output.outputs)):
                     response_ids = output.outputs[sample_id].token_ids
                     response.append(response_ids)
-                    first50_logprobs = []
-                    last50_logprobs = []
+                    first15_logprobs = []
+                    last15_logprobs = []
                     if self.config.calculate_log_probs:
                         target_num = min(15, len(response_ids)//2)
                         for key_first, key_last in zip(output.outputs[sample_id].logprobs[:target_num], output.outputs[sample_id].logprobs[-target_num:]):
                             first_logprobs = [key_first_value.logprob for key_first_value in key_first.values()][:20]
                             last_logprobs = [key_last_value.logprob for key_last_value in key_last.values()][:20]
-                            first50_logprobs.append(first_logprobs)
-                            last50_logprobs.append(last_logprobs)
-                        sample_first50_logprobs.append(first50_logprobs)
-                        sample_last50_logprobs.append(last50_logprobs)
+                            first15_logprobs.append(first_logprobs)
+                            last15_logprobs.append(last_logprobs)
+                        sample_first15_logprobs.append(first15_logprobs)
+                        sample_last15_logprobs.append(last15_logprobs)
                         curr_log_prob = []
                         for i, logprob in enumerate(output.outputs[sample_id].logprobs):
                             curr_log_prob.append(logprob[response_ids[i]].logprob)
@@ -325,10 +325,10 @@ class vLLMRollout(BaseRollout):
             if self.config.calculate_log_probs:
                 rollout_log_probs = pad_2d_list_to_length(rollout_log_probs, -1, max_length=self.config.response_length).to(idx.device)
                 rollout_log_probs = rollout_log_probs.to(torch.float32)
-                sample_first50_logprobs = torch.tensor(sample_first50_logprobs, dtype=torch.float32).to(idx.device)
-                sample_last50_logprobs = torch.tensor(sample_last50_logprobs, dtype=torch.float32).to(idx.device)
-                print("sample_first50_logprobs: ", sample_first50_logprobs.shape)
-                print("sample_last50_logprobs: ", sample_last50_logprobs.shape)
+                sample_first15_logprobs = torch.tensor(sample_first15_logprobs, dtype=torch.float32).to(idx.device)
+                sample_last15_logprobs = torch.tensor(sample_last15_logprobs, dtype=torch.float32).to(idx.device)
+                print("sample_first15_logprobs: ", sample_first15_logprobs.shape)
+                print("sample_last15_logprobs: ", sample_last15_logprobs.shape)
 
             if self.sampling_params.n > 1 and do_sample:
                 idx = _repeat_interleave(idx, self.sampling_params.n)
@@ -374,8 +374,8 @@ class vLLMRollout(BaseRollout):
         if self.config.calculate_log_probs:
             # we will recompute old log prob with actor
             batch["rollout_log_probs"] = rollout_log_probs
-            batch["first50_logprobs"] = sample_first50_logprobs
-            batch["last50_logprobs"] = sample_last50_logprobs
+            batch["first15_logprobs"] = sample_first15_logprobs
+            batch["last15_logprobs"] = sample_last15_logprobs
 
         # free vllm cache engine
         if (

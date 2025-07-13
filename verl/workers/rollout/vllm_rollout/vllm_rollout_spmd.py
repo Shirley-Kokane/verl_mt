@@ -45,7 +45,7 @@ from vllm.worker.worker_base import WorkerWrapperBase
 from verl import DataProto
 from verl.third_party.vllm import vllm_version
 from verl.utils.debug import GPUMemoryLogger
-from verl.utils.torch_functional import get_response_mask, pad_2d_list_to_length, pad_sequence_to_length
+from verl.utils.torch_functional import get_response_mask, pad_2d_list_to_length, extrapolate_nested_list, extrapolate
 from verl.workers.rollout.base import BaseRollout
 
 logger = logging.getLogger(__file__)
@@ -314,6 +314,9 @@ class vLLMRollout(BaseRollout):
                             last_logprobs = [key_last_value.logprob for key_last_value in key_last.values()][:20]
                             first15_logprobs.append(first_logprobs)
                             last15_logprobs.append(last_logprobs)
+                        if target_num < 15:
+                            first15_logprobs = extrapolate(first15_logprobs, 15)
+                            last15_logprobs = extrapolate(last15_logprobs, 15)
                         sample_first15_logprobs.append(first15_logprobs)
                         sample_last15_logprobs.append(last15_logprobs)
                         curr_log_prob = []
@@ -325,6 +328,9 @@ class vLLMRollout(BaseRollout):
             if self.config.calculate_log_probs:
                 rollout_log_probs = pad_2d_list_to_length(rollout_log_probs, -1, max_length=self.config.response_length).to(idx.device)
                 rollout_log_probs = rollout_log_probs.to(torch.float32)
+                print("sample_first15_logprobs: ", len(sample_first15_logprobs), len(sample_first15_logprobs[0]), len(sample_first15_logprobs[0][0]))
+                #sample_first15_logprobs = extrapolate_nested_list(sample_first15_logprobs, 1, 15)
+                #sample_last15_logprobs = extrapolate_nested_list(sample_last15_logprobs, 1, 15)
                 sample_first15_logprobs = torch.tensor(sample_first15_logprobs, dtype=torch.float32).to(idx.device)
                 sample_last15_logprobs = torch.tensor(sample_last15_logprobs, dtype=torch.float32).to(idx.device)
                 print("sample_first15_logprobs: ", sample_first15_logprobs.shape)

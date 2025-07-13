@@ -306,6 +306,80 @@ def pad_2d_list_to_length(response, pad_token_id, max_length=None):
     tensor = torch.tensor(padded_response)
     return tensor
 
+# ... existing code ...
+
+def extrapolate(data,max_length):
+    current_length = len(data)
+    extend_by = max_length - current_length
+    
+    for i in range(extend_by):
+        data.append(data[-1])
+    return data
+
+def extrapolate_nested_list(data, extrapolation_dim, max_length):
+    """
+    Extrapolate a nested list along a specified dimension using linear extrapolation.
+    
+    Args:
+        data: Nested list to extrapolate (e.g., shape [2500, 5, 20])
+        extrapolation_dim: Which dimension to extrapolate (0, 1, or 2)
+        max_length: Target length for the extrapolation dimension
+    
+    Returns:
+        Extrapolated nested list with target shape using linear extrapolation
+    """
+    import copy
+    
+    if extrapolation_dim < 0 or extrapolation_dim > 2:
+        raise ValueError("extrapolation_dim must be 0, 1, or 2 for 3D nested lists")
+    
+    current_length = len(data[0])
+    print(f"Current length: {current_length}")
+    
+    if current_length >= max_length:
+        print(f"Current length {current_length} >= max_length {max_length}, no extrapolation needed")
+        import numpy as np
+        print(f"shapey: ", np.array(data).shape)
+        return torch.tensor(data, dtype=torch.float32)
+    
+    extend_by = max_length - current_length
+    result = copy.deepcopy(data)
+    print(f"Extrapolating {extrapolation_dim} dimension from {current_length} to {max_length}")
+    if extrapolation_dim == 1:
+        # Extrapolate along second dimension [2500, 5, 20] -> [2500, max_length, 20]
+        for i in range(len(result)):
+            for _ in range(extend_by):
+                if len(result[i]) >= 2:
+                    # Linear extrapolation from last two rows
+                    last = result[i][-1]
+                    second_last = result[i][-2]
+                    new_row = []
+                    for j in range(len(last)):
+                        diff = last[j] - second_last[j]
+                        new_val = last[j] + diff
+                        new_row.append(new_val)
+                else:
+                    new_row = copy.deepcopy(result[i][-1])
+                result[i].append(new_row)
+                print(f"Result length: {len(result[i])}")
+    
+    elif extrapolation_dim == 2:
+        # Extrapolate along third dimension [2500, 5, 20] -> [2500, 5, max_length]
+        for i in range(len(result)):
+            for j in range(len(result[i])):
+                for _ in range(extend_by):
+                    if len(result[i][j]) >= 2:
+                        # Linear extrapolation from last two values
+                        diff = result[i][j][-1] - result[i][j][-2]
+                        new_val = result[i][j][-1] + diff
+                    else:
+                        new_val = result[i][j][-1]
+                    result[i][j].append(new_val)
+    
+    return torch.tensor(result, dtype=torch.float32)
+
+
+
 
 def pad_sequence_to_length(tensors, max_seq_len, pad_token_id, left_pad=False):
     """
@@ -318,6 +392,8 @@ def pad_sequence_to_length(tensors, max_seq_len, pad_token_id, left_pad=False):
     # (0, max_seq_len - tensors.shape[-1]) means right pad to max_seq_length and no left pad
     pad_tuple = (max_seq_len - tensors.shape[-1], 0) if left_pad else (0, max_seq_len - tensors.shape[-1])
     return F.pad(tensors, pad_tuple, "constant", pad_token_id)
+
+
 
 
 def postprocess_data(
@@ -747,3 +823,30 @@ def distributed_masked_mean(local_tensor, local_mask):
 
     global_mean = local_sum / local_num
     return global_mean
+
+
+def extrapolate_to_torch_tensor(data, extrapolation_dim, max_length, method="repeat_last", pad_value=0.0, num_points=2, dtype=torch.float32):
+    """
+    Extrapolate a nested list and convert to torch tensor.
+    
+    Args:
+        data: Nested list to extrapolate
+        extrapolation_dim: Which dimension to extrapolate
+        max_length: Target length for the extrapolation dimension
+        method: Extrapolation method
+        pad_value: Value to use for "pad_value" method
+        num_points: Number of points to use for extrapolation
+        dtype: Output tensor dtype
+    
+    Returns:
+        torch.Tensor: Extrapolated tensor
+    """
+    extrapolated_list = extrapolate_nested_list(
+        data=data,
+        extrapolation_dim=extrapolation_dim,
+        max_length=max_length,
+        method=method,
+        pad_value=pad_value,
+        num_points=num_points
+    )
+    return torch.tensor(extrapolated_list, dtype=dtype)

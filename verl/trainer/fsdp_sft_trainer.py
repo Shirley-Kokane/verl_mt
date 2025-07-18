@@ -64,6 +64,9 @@ if is_cuda_available:
 elif is_npu_available:
     from transformers.integrations.npu_flash_attention import index_first_axis, pad_input, rearrange, unpad_input
 
+from dotenv import load_dotenv
+load_dotenv()
+
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_SFT_LOGGING_LEVEL", "WARN"))
 

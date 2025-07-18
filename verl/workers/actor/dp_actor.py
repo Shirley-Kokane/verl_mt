@@ -370,7 +370,6 @@ class DataParallelPPOActor(BasePPOActor):
             select_keys.append("ref_log_prob")
         batch = data.select(batch_keys=select_keys).batch
         has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
-
         # Split to make minibatch iterator for updating the actor
         # See PPO paper for details. https://arxiv.org/abs/1707.06347
         if has_multi_modal_inputs:
@@ -381,10 +380,13 @@ class DataParallelPPOActor(BasePPOActor):
             dataloader = batch.split(self.config.ppo_mini_batch_size)
 
         metrics = {}
+        entropy_history = []
+        prev_grads = None
+
         for epoch in range(self.config.ppo_epochs):
             for batch_idx, data in enumerate(dataloader):
-                # split batch into micro_batches
                 mini_batch = data
+
                 if has_multi_modal_inputs:
                     micro_batches = []
                     if self.config.use_dynamic_bsz:
@@ -445,14 +447,10 @@ class DataParallelPPOActor(BasePPOActor):
                     entropy_coeff = self.config.entropy_coeff
                     loss_agg_mode = self.config.loss_agg_mode
 
-                    # all return: (bsz, response_length)
-                    calculate_entropy = False
-                    if entropy_coeff != 0:
-                        calculate_entropy = True
+                    calculate_entropy = entropy_coeff != 0
                     entropy, log_prob = self._forward_micro_batch(micro_batch=data, temperature=temperature, calculate_entropy=calculate_entropy)
 
-                    loss_mode = self.config.policy_loss.get("loss_mode", "vanilla")
-
+                    
                     if self.config.policy_loss.loss_mode == "vanilla":
                         pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = compute_policy_loss(
                             old_log_prob=old_log_prob,
@@ -466,44 +464,64 @@ class DataParallelPPOActor(BasePPOActor):
                             loss_agg_mode=loss_agg_mode,
                         )
                     else:
-                        policy_loss_fn = get_policy_loss_fn(loss_mode)
-                        pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = policy_loss_fn(old_log_prob, log_prob, advantages, response_mask, loss_agg_mode, self.config)
+                        policy_loss_fn = get_policy_loss_fn(self.config.policy_loss.loss_mode)
+                        pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = policy_loss_fn(
+                            old_log_prob, log_prob, advantages, response_mask, loss_agg_mode, self.config)
 
                     if entropy_coeff != 0:
                         entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
-
-                        # compute policy loss
                         policy_loss = pg_loss - entropy_loss * entropy_coeff
                     else:
                         policy_loss = pg_loss
 
                     if self.config.use_kl_loss:
                         ref_log_prob = data["ref_log_prob"]
-                        # compute kl loss
                         kld = kl_penalty(logprob=log_prob, ref_logprob=ref_log_prob, kl_penalty=self.config.kl_loss_type)
                         kl_loss = agg_loss(loss_mat=kld, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
-
                         policy_loss = policy_loss + kl_loss * self.config.kl_loss_coef
-                        metrics["actor/kl_loss"] = kl_loss.detach().item()
-                        metrics["actor/kl_coef"] = self.config.kl_loss_coef
+                        metrics.update({
+                            "actor/kl_loss": kl_loss.detach().item(),
+                            "actor/kl_coef": self.config.kl_loss_coef,
+                            "actor/kl_mean": kld.masked_select(response_mask.bool()).mean().item(),
+                            "actor/kl_max": kld.masked_select(response_mask.bool()).max().item(),
+                        })
+
+                    delta_logprob = (log_prob - old_log_prob).masked_select(response_mask.bool())
+                    metrics["actor/delta_logprob_mean"] = delta_logprob.mean().item()
+                    metrics["actor/delta_logprob_std"] = delta_logprob.std().item()
 
                     if self.config.use_dynamic_bsz:
-                        # relative to the dynamic bsz
                         loss = policy_loss * (len(data) / self.config.ppo_mini_batch_size)
                     else:
                         loss = policy_loss / self.gradient_accumulation
                     loss.backward()
 
-                    data = {
+                    if prev_grads is not None:
+                        cos_sims = []
+                        for p, prev in zip(self.actor_module.parameters(), prev_grads):
+                            if p.grad is not None and prev is not None:
+                                cos = torch.nn.functional.cosine_similarity(p.grad.view(-1), prev.view(-1), dim=0)
+                                cos_sims.append(cos.item())
+                        if cos_sims:
+                            metrics["actor/grad_cos_sim"] = sum(cos_sims) / len(cos_sims)
+
+                    prev_grads = [p.grad.clone().detach() if p.grad is not None else None for p in self.actor_module.parameters()]
+
+                    logp_grad = torch.autograd.grad(log_prob.sum(), self.actor_module.parameters(), retain_graph=True, allow_unused=True)
+                    if logp_grad:
+                        import math
+                        grad_norm_val = math.sqrt(sum((g**2).sum() for g in logp_grad if g is not None))
+                        metrics["actor/logp_grad_norm"] = grad_norm_val
+
+                    append_to_dict(metrics, {
                         "actor/pg_loss": pg_loss.detach().item(),
                         "actor/pg_clipfrac": pg_clipfrac.detach().item(),
                         "actor/ppo_kl": ppo_kl.detach().item(),
                         "actor/pg_clipfrac_lower": pg_clipfrac_lower.detach().item(),
-                    }
-                    append_to_dict(metrics, data)
+                    })
 
                 grad_norm = self._optimizer_step()
-                data = {"actor/grad_norm": grad_norm.detach().item()}
-                append_to_dict(metrics, data)
+                metrics["actor/grad_norm"] = grad_norm.detach().item()
+
         self.actor_optimizer.zero_grad()
         return metrics

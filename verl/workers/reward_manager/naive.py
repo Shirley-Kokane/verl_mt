@@ -19,6 +19,54 @@ import torch
 from verl import DataProto
 from verl.utils.reward_score import default_compute_score
 from verl.workers.reward_manager import register
+from nltk.translate.bleu_score import sentence_bleu
+
+
+def diversity_score(response_ids: torch.Tensor, indices: list[int]) -> torch.Tensor:
+    """
+    Compute the diversity score for a batch of responses.
+    """
+    # Get the unique indices
+    unique_indices = list(set(indices))
+    
+    # Calculate the diversity score
+    index_to_rows = {idx: [] for idx in unique_indices}
+    index_to_pos = {idx: [] for idx in unique_indices}
+    index_to_set = {idx: set() for idx in unique_indices}
+
+    for i, idx in enumerate(indices):
+        index_to_rows[idx].append(response_ids[i].tolist())
+        index_to_pos[idx].append(i)  # to maintain position of each rollout
+        index_to_set[idx].add(tuple(response_ids[i].tolist()[:50]))
+
+    self_bleu_scores = []
+    per_rollout_uniqueness = [0.0] * len(response_ids)  # aligned with input
+    
+    for i, response_id in enumerate(response_ids):
+        max_tokens = min(15, response_id.shape[0])
+        current_rollout_set = set(response_id.tolist()[:max_tokens])
+        idx = indices[i]
+        total_rollout_set = index_to_set[idx] 
+        #get the no. of tokens unique to current rollout compared to total rollout set
+        unique_tokens = current_rollout_set - total_rollout_set
+        #get the no. of tokens unique to total rollout set compared to current rollout set
+        per_rollout_uniqueness[i] = len(unique_tokens) / len(current_rollout_set)
+        
+    for idx in unique_indices:
+        rollouts = index_to_rows[idx]
+        
+        # Self-BLEU
+        if len(rollouts) < 2:
+            self_bleu_scores.append(0.0)
+        else:
+            bleu_scores = []
+            for i in range(len(rollouts)):
+                references = rollouts[:i] + rollouts[i+1:]
+                score = sentence_bleu(references, rollouts[i])
+                bleu_scores.append(score)
+            self_bleu_scores.append(sum(bleu_scores) / len(bleu_scores))
+    
+    return self_bleu_scores, per_rollout_uniqueness
 
 
 @register("naive")
@@ -51,9 +99,14 @@ class NaiveRewardManager:
                 return data.batch["rm_scores"]
 
         reward_tensor = torch.zeros_like(data.batch["responses"], dtype=torch.float32)
+        indices = [item["index"] for item in data.non_tensor_batch["extra_info"]]
         reward_extra_info = defaultdict(list)
 
         already_print_data_sources = {}
+        self_bleu_scores, per_rollout_uniqueness = diversity_score(data.batch["responses"], indices)
+        
+        reward_extra_info["self_bleu_scores"] = self_bleu_scores
+        reward_extra_info["per_rollout_uniqueness"] = per_rollout_uniqueness
 
         for i in range(len(data)):
             data_item = data[i]  # DataProtoItem

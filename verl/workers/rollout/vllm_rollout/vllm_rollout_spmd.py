@@ -186,7 +186,6 @@ class vLLMRollout(BaseRollout):
             if hasattr(SamplingParams(), str(k)):
                 kwargs[k] = config.get(k)
 
-        print(f"kwargs: {kwargs}")
         self.sampling_params = SamplingParams(**kwargs)
 
         self.pad_token_id = tokenizer.pad_token_id
@@ -284,7 +283,6 @@ class vLLMRollout(BaseRollout):
                 lora_int_id = lora_int_ids[0]
                 lora_requests = [LoRARequest(lora_name=f"{lora_int_id}", lora_int_id=lora_int_id, lora_path="/simon-stub-path")] * batch_size
 
-        print("not empty kwargs: ", kwargs)
         # users can customize different sampling_params at different run
         with self.update_sampling_params(**kwargs):
             outputs = self.inference_engine.generate(
@@ -328,13 +326,10 @@ class vLLMRollout(BaseRollout):
             if self.config.calculate_log_probs:
                 rollout_log_probs = pad_2d_list_to_length(rollout_log_probs, -1, max_length=self.config.response_length).to(idx.device)
                 rollout_log_probs = rollout_log_probs.to(torch.float32)
-                print("sample_first15_logprobs: ", len(sample_first15_logprobs), len(sample_first15_logprobs[0]), len(sample_first15_logprobs[0][0]))
                 #sample_first15_logprobs = extrapolate_nested_list(sample_first15_logprobs, 1, 15)
                 #sample_last15_logprobs = extrapolate_nested_list(sample_last15_logprobs, 1, 15)
                 sample_first15_logprobs = torch.tensor(sample_first15_logprobs, dtype=torch.float32).to(idx.device)
                 sample_last15_logprobs = torch.tensor(sample_last15_logprobs, dtype=torch.float32).to(idx.device)
-                print("sample_first15_logprobs: ", sample_first15_logprobs.shape)
-                print("sample_last15_logprobs: ", sample_last15_logprobs.shape)
 
             if self.sampling_params.n > 1 and do_sample:
                 idx = _repeat_interleave(idx, self.sampling_params.n)

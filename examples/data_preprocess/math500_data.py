@@ -54,20 +54,21 @@ if __name__ == "__main__":
         def process_fn(example, idx):
             question = example.pop("problem")
             
-            prompt_text = tokenizer.apply_chat_template(
-                [
-                {
-                    "role": "system",
-                    "content": instruction_following,
-                },
-                {
-                    "role": "user",
-                    "content": question
-                },                
-            ],
-                tokenize=False,
-                add_generation_prompt=True,
-            )
+            prompt_text = [{"role": "user", "content": question + " " + instruction_following}]
+            # tokenizer.apply_chat_template(
+            #     [
+            #     {
+            #         "role": "system",
+            #         "content": instruction_following,
+            #     },
+            #     {
+            #         "role": "user",
+            #         "content": question
+            #     },                
+            # ],
+            #     tokenize=False,
+            #     add_generation_prompt=True,
+            # )
 
             solution = example.pop("answer")
             data = {
@@ -75,8 +76,8 @@ if __name__ == "__main__":
                 "prompt": prompt_text,
                 "solution": example["solution"],
                 "ability": "math",
-                "reward_model": {"style": "rule", "ground_truth": str(solution)},
-                "extra_info": {"split": split, "index": str(idx), "prompt": prompt_text, "solution": example["solution"]},
+                "reward_model": {"style": "rule", "ground_truth": solution},
+                "extra_info": {"split": split, "index": idx, "prompt": prompt_text, "solution": example["solution"]},
             }
             print(data)
             return data

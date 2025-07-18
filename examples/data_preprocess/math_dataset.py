@@ -55,20 +55,21 @@ if __name__ == "__main__":
         def process_fn(example, idx):
             question = example.pop("problem")
             
-            prompt_text = tokenizer.apply_chat_template(
-                [
-                {
-                    "role": "system",
-                    "content": instruction_following,
-                },
-                {
-                    "role": "user",
-                    "content": question
-                },                
-            ],
-                tokenize=False,
-                add_generation_prompt=True,
-            )
+            prompt_text = [{"role": "user", "content": question + " " + instruction_following}]
+            #tokenizer.apply_chat_template(
+            #     [
+            #     {
+            #         "role": "system",
+            #         "content": instruction_following,
+            #     },
+            #     {
+            #         "role": "user",
+            #         "content": question
+            #     },                
+            # ],
+            #     tokenize=False,
+            #     add_generation_prompt=True,
+            # )
 
             answer = example.pop("solution")
             solution = extract_solution(answer)
@@ -78,7 +79,7 @@ if __name__ == "__main__":
                 "solution":answer,
                 "ability": "math",
                 "reward_model": {"style": "rule", "ground_truth": str(solution)},
-                "extra_info": {"split": split, "index": str(idx), "prompt": prompt_text, "solution": answer},
+                "extra_info": {"split": split, "index": idx, "prompt": prompt_text, "solution": answer},
             }
             return data
 
@@ -89,6 +90,8 @@ if __name__ == "__main__":
 
     local_dir = args.local_dir
     hdfs_dir = args.hdfs_dir
+    print("train_dataset ", len(train_dataset))
+    print("test_dataset ", len(test_dataset))
 
     train_dataset.to_parquet(os.path.join(local_dir, f"train_lighteval_{model_name.split('/')[-1]}.parquet"))
     test_dataset.to_parquet(os.path.join(local_dir, f"test_lighteval_{model_name.split('/')[-1]}.parquet"))

@@ -35,10 +35,12 @@ def diversity_score(response_ids: torch.Tensor, indices: list[int]) -> torch.Ten
     index_to_set = {idx: set() for idx in unique_indices}
 
     for i, idx in enumerate(indices):
+        max_tokens = min(15, response_ids[i].shape[0])
         index_to_rows[idx].append(response_ids[i].tolist())
         index_to_pos[idx].append(i)  # to maintain position of each rollout
-        index_to_set[idx].add(tuple(response_ids[i].tolist()[:50]))
-
+        index_to_set[idx].add(tuple(response_ids[i].tolist()[:max_tokens]))
+        
+    print("how many rollouts ", len(index_to_rows.keys()) , len(index_to_rows[idx]))
     self_bleu_scores = []
     per_rollout_uniqueness = [0.0] * len(response_ids)  # aligned with input
     

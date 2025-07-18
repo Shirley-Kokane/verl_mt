@@ -388,10 +388,10 @@ def process_validation_metrics(data_sources: list[str], sample_inputs: list[str]
 
                     ns = []
                     n = 2
-                    while n < n_resps:
-                        ns.append(n)
-                        n *= 2
-                    ns.append(n_resps)
+                    # while n < n_resps:
+                    #     ns.append(n)
+                    #     n *= 2
+                    # ns.append(n_resps)
 
                     for n in ns:
                         [(bon_mean, bon_std), (won_mean, won_std)] = bootstrap_metric(data=var_vals, subset_size=n, reduce_fns=[np.max, np.min], seed=seed)

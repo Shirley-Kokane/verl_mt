@@ -313,7 +313,10 @@ def extrapolate(data,max_length):
     extend_by = max_length - current_length
     
     for i in range(extend_by):
-        data.append(data[-1])
+        if len(data) > 0:
+            data.append(data[-1])
+        else:
+            data.append(0)
     return data
 
 def extrapolate_nested_list(data, extrapolation_dim, max_length):

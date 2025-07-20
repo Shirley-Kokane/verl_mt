@@ -22,55 +22,56 @@ from verl.workers.reward_manager import register
 from nltk.translate.bleu_score import sentence_bleu
 
 
-def diversity_score(responses: list[str], response_ids: torch.Tensor, prompts: list[int]) -> torch.Tensor:
+def diversity_score(responses: list[str], response_ids: torch.Tensor, indices: list[int]) -> torch.Tensor:
     """
     Compute the diversity score for a batch of responses.
     """
     # Get the unique indices
     prompt_to_indices = defaultdict(list)
-    for idx, prompt in enumerate(prompts):
+    for idx, prompt in enumerate(indices):
         prompt_to_indices[prompt].append(idx)
     
     # Calculate the diversity score
-    index_to_rows = {prompt: [] for prompt in prompts}
-    index_to_pos = {prompt: [] for prompt in prompts}
-    index_to_set = {prompt: set() for prompt in prompts}
+    index_to_rows = {prompt: [] for prompt in indices}
+    index_to_pos = {prompt: [] for prompt in indices}
+    index_to_token_ids = {prompt: [] for prompt in indices}
+    index_to_set = {prompt: set() for prompt in indices}
 
-    for i, prompt in enumerate(prompts):
-        max_tokens = min(len(responses[i]), 15)
-        index_to_rows[prompt].append(responses[i][:max_tokens])
+    for i, prompt in enumerate(indices):
+        #max_tokens = min(len(responses[i]), 5)
+        index_to_rows[prompt].append(responses[i])
+        index_to_token_ids[prompt].append(response_ids[i].tolist())
         index_to_pos[prompt].append(i)  # to maintain position of each rollout
     
     import itertools
     for prompt in index_to_rows:
-        index_to_set[prompt] = set(itertools.chain.from_iterable(index_to_rows[prompt]))
+        index_to_set[prompt] = set(itertools.chain.from_iterable(index_to_token_ids[prompt]))
         
     # print("how many rollouts ", len(index_to_rows.keys()) , len(index_to_rows[prompt]))
     self_bleu_scores = [0.0]*len(response_ids)
     per_rollout_uniqueness = [0.0] * len(response_ids)  # aligned with input
-    
-    for i, response_id in enumerate(response_ids):
-        max_tokens = min(len(responses[i]), 15)
-        current_rollout_set = set(response_id.tolist()[:max_tokens])
-        prompt = prompts[i]
-        total_rollout_set = index_to_set[prompt] 
-        #get the no. of tokens unique to current rollout compared to total rollout set
-        unique_tokens = current_rollout_set - total_rollout_set
-        #get the no. of tokens unique to total rollout set compared to current rollout set
-        per_rollout_uniqueness[i] = len(unique_tokens) / len(current_rollout_set)
         
-    for prompt in prompts:
+    for prompt in indices:
         rollouts = index_to_rows[prompt]
+        token_ids = index_to_token_ids[prompt]
         
         # Self-BLEU
         i=0
         if len(rollouts) < 2:
             self_bleu_scores[index_to_pos[prompt][i]] = 0.0
+            per_rollout_uniqueness[index_to_pos[prompt][i]] = 0.0
         else:
             for i in range(len(rollouts)):
                 references = rollouts[:i] + rollouts[i+1:]
                 score = sentence_bleu(references, rollouts[i])
                 self_bleu_scores[index_to_pos[prompt][i]] = score
+                
+                reference_ids = token_ids[:i] + token_ids[i+1:]
+                reference_set = set(itertools.chain.from_iterable(reference_ids))
+                current_set = set(token_ids[i])
+                unique_tokens = reference_set - current_set
+                per_rollout_uniqueness[index_to_pos[prompt][i]] = len(unique_tokens) / len(reference_set)
+                #print("tokens ", unique_tokens, reference_set, current_set, per_rollout_uniqueness[index_to_pos[prompt][i]])
     
     return self_bleu_scores, per_rollout_uniqueness
 

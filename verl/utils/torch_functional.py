@@ -308,15 +308,17 @@ def pad_2d_list_to_length(response, pad_token_id, max_length=None):
 
 # ... existing code ...
 
-def extrapolate(data,max_length):
+def extrapolate(data,max_length, cache_logprobs):
     current_length = len(data)
     extend_by = max_length - current_length
-    
+    if len(cache_logprobs) > 0 and len(data) == 0:
+        return cache_logprobs
+        
     for i in range(extend_by):
         if len(data) > 0:
             data.append(data[-1])
         else:
-            data.append(0)
+            data.append([0] * 20)
     return data
 
 def extrapolate_nested_list(data, extrapolation_dim, max_length):

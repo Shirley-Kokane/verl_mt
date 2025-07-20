@@ -299,6 +299,7 @@ class vLLMRollout(BaseRollout):
             rollout_log_probs = []
             sample_first15_logprobs = []
             sample_last15_logprobs = []
+            self.cache_logprobs = []
             for output in outputs:
                 for sample_id in range(len(output.outputs)):
                     response_ids = output.outputs[sample_id].token_ids
@@ -312,9 +313,10 @@ class vLLMRollout(BaseRollout):
                             last_logprobs = [key_last_value.logprob for key_last_value in key_last.values()][:20]
                             first15_logprobs.append(first_logprobs)
                             last15_logprobs.append(last_logprobs)
-                        if target_num < 15:
-                            first15_logprobs = extrapolate(first15_logprobs, 15)
-                            last15_logprobs = extrapolate(last15_logprobs, 15)
+                        if target_num < 15 or len(first15_logprobs) == 0:
+                            first15_logprobs = extrapolate(first15_logprobs, 15, self.cache_logprobs)
+                            last15_logprobs = extrapolate(last15_logprobs, 15, self.cache_logprobs)
+                        self.cache_logprobs = first15_logprobs
                         sample_first15_logprobs.append(first15_logprobs)
                         sample_last15_logprobs.append(last15_logprobs)
                         curr_log_prob = []
@@ -328,8 +330,11 @@ class vLLMRollout(BaseRollout):
                 rollout_log_probs = rollout_log_probs.to(torch.float32)
                 #sample_first15_logprobs = extrapolate_nested_list(sample_first15_logprobs, 1, 15)
                 #sample_last15_logprobs = extrapolate_nested_list(sample_last15_logprobs, 1, 15)
-                sample_first15_logprobs = torch.tensor(sample_first15_logprobs, dtype=torch.float32).to(idx.device)
-                sample_last15_logprobs = torch.tensor(sample_last15_logprobs, dtype=torch.float32).to(idx.device)
+                print("sample_first15_logprobs ", len(sample_first15_logprobs), len(sample_first15_logprobs[0])) 
+                if len(sample_first15_logprobs) > 0:
+                    sample_first15_logprobs = torch.tensor(sample_first15_logprobs, dtype=torch.float32).to(idx.device)
+                if len(sample_last15_logprobs) > 0:
+                    sample_last15_logprobs = torch.tensor(sample_last15_logprobs, dtype=torch.float32).to(idx.device)
 
             if self.sampling_params.n > 1 and do_sample:
                 idx = _repeat_interleave(idx, self.sampling_params.n)

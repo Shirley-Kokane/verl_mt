@@ -11,6 +11,8 @@
 
 runs/
 sample.sh
+*.sh 
+examples/qwen_7b_1m_grpo/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

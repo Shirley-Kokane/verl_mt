@@ -38,9 +38,9 @@ def diversity_score(responses: list[str], response_ids: torch.Tensor, indices: l
     index_to_set = {prompt: set() for prompt in indices}
 
     for i, prompt in enumerate(indices):
-        #max_tokens = min(len(responses[i]), 5)
-        index_to_rows[prompt].append(responses[i])
-        index_to_token_ids[prompt].append(response_ids[i].tolist())
+        max_tokens = min(len(responses[i]), 50)
+        index_to_rows[prompt].append(responses[i][:max_tokens])
+        index_to_token_ids[prompt].append(response_ids[i][:max_tokens].tolist())
         index_to_pos[prompt].append(i)  # to maintain position of each rollout
     
     import itertools
